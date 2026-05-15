@@ -5,14 +5,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { PageShell } from "@/components/layout/PageShell";
 import { PlaybackTransport } from "@/components/room/PlaybackTransport";
 import { QueueList } from "@/components/room/QueueList";
-import { SearchPanel } from "@/components/room/SearchPanel";
+import { RoomYouTubeSearch } from "@/components/room/RoomYouTubeSearch";
 import {
   YouTubePlayer,
   type YtPlayerLike,
 } from "@/components/room/YouTubePlayer";
 import { Button } from "@/components/ui/Button";
+import { useEndOfTrackBrowserNotification } from "@/hooks/useEndOfTrackBrowserNotification";
 import { usePlaybackMode } from "@/hooks/usePlaybackMode";
 import { useSupabaseConfigured } from "@/hooks/useSupabaseConfig";
+import { getOrCreateJamContributorLabel } from "@/lib/jamContributorIdentity";
 import { isJamRoomHost } from "@/lib/jamHost";
 import { getSupabaseBrowserClient } from "@/lib/supabase";
 import type { CurrentPlay, QueueItem, YoutubeSearchHit } from "@/lib/types";
@@ -109,10 +111,15 @@ export default function RoomClient({ roomId }: RoomClientProps) {
   const [isHost, setIsHost] = useState(() =>
     typeof window !== "undefined" ? isJamRoomHost(roomId) : false,
   );
+  const [selfContributor, setSelfContributor] = useState<string | null>(null);
 
   useEffect(() => {
     setIsHost(isJamRoomHost(roomId));
   }, [roomId]);
+
+  useEffect(() => {
+    setSelfContributor(getOrCreateJamContributorLabel());
+  }, []);
   const [currentPlayRow, setCurrentPlayRow] = useState<CurrentPlay | null>(
     null,
   );
@@ -346,6 +353,16 @@ export default function RoomClient({ roomId }: RoomClientProps) {
 
   const roomIsPlaying = currentPlayRow?.is_playing !== false;
 
+  const nowTitle =
+    queue.find((q) => q.video_id === currentVideo?.videoId)?.title ?? null;
+
+  const endNotif = useEndOfTrackBrowserNotification(playerRef, {
+    videoId: currentVideo?.videoId ?? null,
+    trackTitle: nowTitle,
+    roomIsPlaying,
+    isHost,
+  });
+
   const setRoomPlaying = useCallback(
     async (playing: boolean) => {
       const supabase = getSupabaseBrowserClient();
@@ -388,12 +405,14 @@ export default function RoomClient({ roomId }: RoomClientProps) {
           ? maxRow.position + 1
           : 1;
 
+      const addedBy = getOrCreateJamContributorLabel();
       const { error } = await supabase.from("queue").insert({
         room_id: roomId,
         video_id: hit.videoId,
         title: hit.title,
         thumbnail: hit.thumbnail,
         position: nextPos,
+        added_by_label: addedBy || null,
       });
       if (error) throw error;
       await refreshPlaybackState();
@@ -417,9 +436,6 @@ export default function RoomClient({ roomId }: RoomClientProps) {
     },
     [roomId, refreshPlaybackState],
   );
-
-  const nowTitle =
-    queue.find((q) => q.video_id === currentVideo?.videoId)?.title ?? null;
 
   const initialSeek = wallElapsedSeconds(currentPlayRow?.started_at);
 
@@ -476,10 +492,12 @@ export default function RoomClient({ roomId }: RoomClientProps) {
 
   return (
     <PageShell
+      wide
+      densePadding
       title={roomName ? roomName : "Jam Room"}
       subtitle={`ID room: ${roomId}`}
     >
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="mb-4 flex flex-col gap-3 sm:mb-5 sm:flex-row sm:items-start sm:justify-between">
         <Link
           href="/"
           className="text-sm text-jam-muted underline-offset-4 hover:text-white hover:underline"
@@ -518,10 +536,14 @@ export default function RoomClient({ roomId }: RoomClientProps) {
         </div>
       </div>
 
-      <div className="flex flex-col gap-8">
-        <section className="space-y-3">
+      <div className="relative z-30 mb-5 flex justify-center sm:mb-6">
+        <RoomYouTubeSearch onPick={handleAddToQueue} disabled={bootLoading} />
+      </div>
+
+      <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(280px,380px)] lg:items-start lg:gap-8 xl:grid-cols-[minmax(0,1fr)_minmax(300px,400px)]">
+        <div className="flex min-w-0 flex-col gap-4">
           {!isHost && (
-            <div className="rounded-2xl border border-white/10 bg-jam-surface/60 p-3">
+            <div className="rounded-xl border border-white/10 bg-jam-surface/60 p-3">
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-jam-muted">
                 Audio di perangkat ini (tamu)
               </p>
@@ -584,32 +606,106 @@ export default function RoomClient({ roomId }: RoomClientProps) {
           />
 
           {nowTitle && (
-            <p className="truncate text-center text-sm text-jam-muted">
+            <p className="truncate text-center text-sm text-jam-muted lg:text-left">
               Sedang diputar:{" "}
               <span className="font-medium text-white">{nowTitle}</span>
             </p>
           )}
-        </section>
 
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-jam-muted">
-              Antrean
-            </h2>
-            {bootLoading && (
-              <span className="text-xs text-jam-muted">Menyinkronkan…</span>
-            )}
-          </div>
-          <QueueList
-            items={queue}
-            currentVideoId={currentVideo?.videoId ?? null}
-            loading={bootLoading && queue.length === 0}
-            onReorder={handleReorder}
-            reorderDisabled={bootLoading}
-          />
-        </section>
+          {isHost && (
+            <div className="rounded-xl border border-white/10 bg-jam-surface/40 px-3 py-2.5 text-xs text-jam-muted sm:px-4 sm:text-sm">
+              <p className="font-medium text-white">
+                Peringatan hampir habis (host)
+              </p>
+              <p className="mt-1 text-[11px] leading-relaxed sm:text-xs">
+                Tab tidak aktif kadang menahan lagu berikutnya. Aktifkan
+                notifikasi untuk diingatkan sekitar 7 detik sebelum selesai;
+                ketuk notifikasi untuk kembali ke tab ini.
+              </p>
+              {!endNotif.notifSupported ? (
+                <p className="mt-2 text-[11px] text-jam-muted/90 sm:text-xs">
+                  Peramban ini tidak mendukung notifikasi desktop.
+                </p>
+              ) : endNotif.permission === "denied" ? (
+                <p className="mt-2 text-[11px] text-amber-200/90 sm:text-xs">
+                  Notifikasi diblokir. Ubah izin situs di pengaturan browser jika
+                  ingin memakai fitur ini.
+                </p>
+              ) : (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {endNotif.permission === "default" && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="px-3 py-1.5 text-xs"
+                      onClick={() => void endNotif.requestAndEnable()}
+                    >
+                      Izinkan & aktifkan peringatan
+                    </Button>
+                  )}
+                  {endNotif.permission === "granted" &&
+                    endNotif.userEnabled && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="px-3 py-1.5 text-xs"
+                        onClick={() => endNotif.setUserEnabled(false)}
+                      >
+                        Nonaktifkan peringatan
+                      </Button>
+                    )}
+                  {endNotif.permission === "granted" &&
+                    !endNotif.userEnabled && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="px-3 py-1.5 text-xs"
+                        onClick={() => endNotif.setUserEnabled(true)}
+                      >
+                        Aktifkan peringatan
+                      </Button>
+                    )}
+                  {endNotif.permission === "granted" &&
+                    endNotif.userEnabled && (
+                      <span className="text-xs text-jam-accent" role="status">
+                        Peringatan aktif
+                      </span>
+                    )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
-        <SearchPanel onPick={handleAddToQueue} disabled={bootLoading} />
+        <aside className="flex min-w-0 flex-col gap-4">
+          {selfContributor ? (
+            <p className="rounded-lg border border-white/10 bg-black/25 px-3 py-2 text-xs text-jam-muted">
+              Identitas antrean Anda:{" "}
+              <span className="font-medium text-white">{selfContributor}</span>
+            </p>
+          ) : null}
+
+          <section className="flex min-h-0 flex-1 flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-jam-muted">
+                Antrean
+              </h2>
+              {bootLoading && (
+                <span className="shrink-0 text-xs text-jam-muted">
+                  Menyinkronkan…
+                </span>
+              )}
+            </div>
+            <QueueList
+              items={queue}
+              currentVideoId={currentVideo?.videoId ?? null}
+              loading={bootLoading && queue.length === 0}
+              onReorder={handleReorder}
+              reorderDisabled={bootLoading}
+              scrollable={false}
+            />
+          </section>
+        </aside>
       </div>
     </PageShell>
   );

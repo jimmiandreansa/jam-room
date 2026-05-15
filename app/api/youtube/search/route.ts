@@ -27,10 +27,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Query ?q= is required." }, { status: 400 });
   }
 
+  const limitRaw = Number(req.nextUrl.searchParams.get("limit"));
+  const maxResults = Math.min(
+    15,
+    Math.max(1, Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 5),
+  );
+
   const url = new URL("https://www.googleapis.com/youtube/v3/search");
   url.searchParams.set("part", "snippet");
   url.searchParams.set("type", "video");
-  url.searchParams.set("maxResults", "5");
+  url.searchParams.set("maxResults", String(maxResults));
   url.searchParams.set("q", q);
   url.searchParams.set("key", key);
 

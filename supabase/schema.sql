@@ -17,6 +17,7 @@ create table if not exists public.queue (
   video_id text not null,
   title text not null,
   thumbnail text not null,
+  added_by_label text,
   position integer not null default 0,
   created_at timestamptz not null default now()
 );

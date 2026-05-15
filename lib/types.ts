@@ -12,6 +12,8 @@ export type QueueItem = {
   video_id: string;
   title: string;
   thumbnail: string;
+  /** Client-generated tag, e.g. "🦦 Lumivex" — who queued the track. */
+  added_by_label?: string | null;
   position: number;
   created_at: string;
 };

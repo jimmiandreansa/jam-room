@@ -26,6 +26,10 @@ type QueueListProps = {
   loading?: boolean;
   onReorder?: (orderedIds: string[]) => void | Promise<void>;
   reorderDisabled?: boolean;
+  /** Extra classes on the list `<ul>`. */
+  listClassName?: string;
+  /** When false, list grows with page (no max-height / no list scrollbar). */
+  scrollable?: boolean;
 };
 
 function StaticRow({
@@ -66,6 +70,14 @@ function StaticRow({
         >
           {item.title}
         </p>
+        {item.added_by_label ? (
+          <p
+            className="mt-0.5 truncate text-[11px] text-jam-muted"
+            title={item.added_by_label}
+          >
+            <span className="text-white/75">{item.added_by_label}</span>
+          </p>
+        ) : null}
         {isNow && (
           <p className="text-xs font-medium text-jam-accent/90">Sedang diputar</p>
         )}
@@ -137,6 +149,14 @@ function SortableRow({
         >
           {item.title}
         </p>
+        {item.added_by_label ? (
+          <p
+            className="mt-0.5 truncate text-[11px] text-jam-muted"
+            title={item.added_by_label}
+          >
+            <span className="text-white/75">{item.added_by_label}</span>
+          </p>
+        ) : null}
         {isNow && (
           <p className="text-xs font-medium text-jam-accent/90">Sedang diputar</p>
         )}
@@ -151,6 +171,8 @@ export function QueueList({
   loading,
   onReorder,
   reorderDisabled,
+  listClassName = "",
+  scrollable = true,
 }: QueueListProps) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -158,6 +180,10 @@ export function QueueList({
       coordinateGetter: sortableKeyboardCoordinates,
     }),
   );
+
+  const listScrollClass = scrollable
+    ? "max-h-72 overflow-y-auto sm:max-h-96"
+    : "overflow-visible";
 
   if (loading) {
     return (
@@ -190,7 +216,9 @@ export function QueueList({
 
   if (!onReorder) {
     return (
-      <ul className="max-h-72 space-y-2 overflow-y-auto rounded-2xl border border-white/10 bg-jam-surface/80 p-2 sm:max-h-96">
+      <ul
+        className={`space-y-2 rounded-2xl border border-white/10 bg-jam-surface/80 p-2 ${listScrollClass} ${listClassName}`}
+      >
         {items.map((item, index) => (
           <StaticRow
             key={item.id}
@@ -212,7 +240,9 @@ export function QueueList({
       onDragEnd={handleDragEnd}
     >
       <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-        <ul className="max-h-72 space-y-2 overflow-y-auto rounded-2xl border border-white/10 bg-jam-surface/80 p-2 sm:max-h-96">
+        <ul
+          className={`space-y-2 rounded-2xl border border-white/10 bg-jam-surface/80 p-2 ${listScrollClass} ${listClassName}`}
+        >
           {items.map((item, index) => (
             <SortableRow
               key={item.id}
