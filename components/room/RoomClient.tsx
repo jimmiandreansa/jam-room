@@ -12,6 +12,7 @@ import {
 } from "@/components/room/YouTubePlayer";
 import { Button } from "@/components/ui/Button";
 import { useEndOfTrackBrowserNotification } from "@/hooks/useEndOfTrackBrowserNotification";
+import { useHostPictureInPicture } from "@/hooks/useHostPictureInPicture";
 import { usePlaybackMode } from "@/hooks/usePlaybackMode";
 import { useSupabaseConfigured } from "@/hooks/useSupabaseConfig";
 import { getOrCreateJamContributorLabel } from "@/lib/jamContributorIdentity";
@@ -124,6 +125,7 @@ export default function RoomClient({ roomId }: RoomClientProps) {
     null,
   );
   const playerRef = useRef<YtPlayerLike | null>(null);
+  const playerContainerRef = useRef<HTMLDivElement | null>(null);
   const [ytPlayer, setYtPlayer] = useState<YtPlayerLike | null>(null);
   const advancingRef = useRef(false);
 
@@ -353,14 +355,26 @@ export default function RoomClient({ roomId }: RoomClientProps) {
 
   const roomIsPlaying = currentPlayRow?.is_playing !== false;
 
-  const nowTitle =
-    queue.find((q) => q.video_id === currentVideo?.videoId)?.title ?? null;
+  const nowQueueItem = queue.find(
+    (q) => q.video_id === currentVideo?.videoId,
+  );
+  const nowTitle = nowQueueItem?.title ?? null;
+  const nowThumbnail = nowQueueItem?.thumbnail ?? null;
 
   const endNotif = useEndOfTrackBrowserNotification(playerRef, {
     videoId: currentVideo?.videoId ?? null,
     trackTitle: nowTitle,
     roomIsPlaying,
     isHost,
+  });
+
+  const hostPip = useHostPictureInPicture({
+    isHost,
+    containerRef: playerContainerRef,
+    trackTitle: nowTitle,
+    trackThumbnail: nowThumbnail,
+    isPlaying: roomIsPlaying,
+    hasVideo: Boolean(currentVideo?.videoId),
   });
 
   const setRoomPlaying = useCallback(
@@ -583,6 +597,7 @@ export default function RoomClient({ roomId }: RoomClientProps) {
           <YouTubePlayer
             videoId={vid}
             playbackKey={playbackKey}
+            containerRef={playerContainerRef}
             muted={playbackMode === "follow_host"}
             roomIsPlaying={roomIsPlaying}
             initialSeekSeconds={initialSeek}
@@ -603,6 +618,10 @@ export default function RoomClient({ roomId }: RoomClientProps) {
             onPlayPause={toggleRoomPlayPause}
             onNext={() => void advanceToNextTrack()}
             nextDisabled={bootLoading}
+            showPipButton={isHost}
+            pipSupported={hostPip.supported}
+            isInPiP={hostPip.isInPiP}
+            onEnterPip={hostPip.enterPiP}
           />
 
           {nowTitle && (
@@ -610,6 +629,54 @@ export default function RoomClient({ roomId }: RoomClientProps) {
               Sedang diputar:{" "}
               <span className="font-medium text-white">{nowTitle}</span>
             </p>
+          )}
+
+          {isHost && (
+            <div className="rounded-xl border border-white/10 bg-jam-surface/40 px-3 py-2.5 text-xs text-jam-muted sm:px-4 sm:text-sm">
+              <p className="font-medium text-white">
+                PiP otomatis saat pindah tab (host)
+              </p>
+              <p className="mt-1 text-[11px] leading-relaxed sm:text-xs">
+                Saat Anda pindah tab, mini player muncul agar lagu tetap jalan.
+                Didukung di Chrome/Edge desktop; gunakan tombol PiP di bawah
+                video jika auto tidak jalan. Chrome mungkin meminta izin
+                &quot;automatic picture-in-picture&quot; saat pertama kali.
+              </p>
+              {!hostPip.supported ? (
+                <p className="mt-2 text-[11px] text-jam-muted/90 sm:text-xs">
+                  Peramban ini tidak mendukung Document Picture-in-Picture.
+                </p>
+              ) : (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {!hostPip.userEnabled ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="px-3 py-1.5 text-xs"
+                      onClick={() => hostPip.setUserEnabled(true)}
+                    >
+                      Aktifkan PiP otomatis
+                    </Button>
+                  ) : (
+                    <>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="px-3 py-1.5 text-xs"
+                        onClick={() => hostPip.setUserEnabled(false)}
+                      >
+                        Nonaktifkan PiP otomatis
+                      </Button>
+                      {hostPip.isInPiP && (
+                        <span className="text-xs text-jam-accent" role="status">
+                          PiP aktif
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           )}
 
           {isHost && (

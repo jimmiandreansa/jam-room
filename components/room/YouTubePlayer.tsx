@@ -1,5 +1,6 @@
 "use client";
 
+import type { RefObject } from "react";
 import YouTube, { type YouTubeProps } from "react-youtube";
 
 /** Minimal YT IFrame API surface we use (avoids global @types/youtube). */
@@ -12,6 +13,7 @@ export type YtPlayerLike = {
   getDuration: () => number;
   mute: () => void;
   unMute: () => void;
+  getIframe?: () => HTMLIFrameElement;
 };
 
 export const YT_STATE_PLAYING = 1;
@@ -25,6 +27,8 @@ type YouTubePlayerProps = {
   roomIsPlaying?: boolean;
   /** Wall-clock sync: seek after load (seconds from track start). */
   initialSeekSeconds?: number | null;
+  /** Host PiP: element moved into Document Picture-in-Picture window. */
+  containerRef?: RefObject<HTMLDivElement>;
   onEnd?: YouTubeProps["onEnd"];
   onPlayerReady?: (player: YtPlayerLike) => void;
   onPlayerChange?: (player: YtPlayerLike | null) => void;
@@ -37,6 +41,7 @@ export function YouTubePlayer({
   muted,
   roomIsPlaying = true,
   initialSeekSeconds,
+  containerRef,
   onEnd,
   onPlayerReady,
   onPlayerChange,
@@ -50,7 +55,10 @@ export function YouTubePlayer({
   }
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-black shadow-lg shadow-black/40">
+    <div
+      ref={containerRef}
+      className="relative overflow-hidden rounded-2xl border border-white/10 bg-black shadow-lg shadow-black/40"
+    >
       <YouTube
         key={playbackKey}
         videoId={videoId}
@@ -67,6 +75,11 @@ export function YouTubePlayer({
         }}
         onReady={(e: Parameters<NonNullable<YouTubeProps["onReady"]>>[0]) => {
           const p = e.target as YtPlayerLike;
+          const iframe = p.getIframe?.();
+          if (iframe) {
+            iframe.allow =
+              "picture-in-picture; autoplay; encrypted-media; fullscreen";
+          }
           const dur = p.getDuration();
           if (
             initialSeekSeconds != null &&

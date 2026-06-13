@@ -70,6 +70,7 @@ Inside a room, use **Salin tautan undangan** / **Salin ID room** to copy the sam
 - **End of track / Next**: any client with the YouTube player can advance the queue (`onEnd` + a small interval fallback when the tab is hidden so playback can continue if the host tab is backgrounded). Use **Next** under the video for a manual skip.
 - **Host vs guest UI**: the browser that **creates** a room is marked host (`localStorage`); only guests see **Audio di perangkat ini** (default **Tanpa pemutar di sini** = muted embed + synced seek from `current_play.started_at`). Host always plays unmuted locally.
 - **Play / Pause (transport icons)**: updates `current_play.is_playing` in Supabase; every client applies play/pause on their YouTube player via Realtime so host and guests stay in sync.
+- **Host Picture-in-Picture**: the room host can enable auto PiP so a mini player opens when switching tabs (Chrome/Edge desktop, Document Picture-in-Picture + Media Session). A manual PiP button on the transport bar is available as a fallback.
 - **Queue**: ordered by `position` (drag-and-drop for everyone). New rows get `max(position)+1`.
 - **Zustand** (`store/jamStore.ts`): holds `roomId`, `queue`, and `currentVideo` for the room UI.
 
