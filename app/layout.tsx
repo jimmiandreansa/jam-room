@@ -15,7 +15,8 @@ const geistMono = localFont({
 
 export const metadata: Metadata = {
   title: "Jam Room App",
-  description: "Collaborative YouTube listening rooms with a shared queue.",
+  description: "Collaborative music listening rooms with a shared queue and public library.",
+  referrer: "strict-origin-when-cross-origin",
 };
 
 export default function RootLayout({

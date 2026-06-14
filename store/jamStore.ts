@@ -1,23 +1,20 @@
 import { create } from "zustand";
-import type { QueueItem } from "@/lib/types";
-
-/** What the YouTube player should render (driven by `current_play` + realtime). */
-export type CurrentVideoState = { videoId: string } | null;
+import type { CurrentTrackState, QueueItem } from "@/lib/types";
 
 type JamState = {
   roomId: string | null;
   queue: QueueItem[];
-  currentVideo: CurrentVideoState;
+  currentTrack: CurrentTrackState;
   setRoomId: (roomId: string | null) => void;
   setQueue: (queue: QueueItem[]) => void;
-  setCurrentVideo: (current: CurrentVideoState) => void;
+  setCurrentTrack: (current: CurrentTrackState) => void;
 };
 
 export const useJamStore = create<JamState>((set) => ({
   roomId: null,
   queue: [],
-  currentVideo: null,
+  currentTrack: null,
   setRoomId: (roomId) => set({ roomId }),
   setQueue: (queue) => set({ queue }),
-  setCurrentVideo: (currentVideo) => set({ currentVideo }),
+  setCurrentTrack: (currentTrack) => set({ currentTrack }),
 }));

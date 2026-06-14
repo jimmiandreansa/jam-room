@@ -3,22 +3,31 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PageShell } from "@/components/layout/PageShell";
+import {
+  AudioPlayer,
+} from "@/components/room/AudioPlayer";
+import type { AudioPlayerLike } from "@/lib/audioPlayer";
 import { PlaybackTransport } from "@/components/room/PlaybackTransport";
 import { QueueList } from "@/components/room/QueueList";
-import { RoomYouTubeSearch } from "@/components/room/RoomYouTubeSearch";
-import {
-  YouTubePlayer,
-  type YtPlayerLike,
-} from "@/components/room/YouTubePlayer";
+import { RoomMemberList } from "@/components/room/RoomMemberList";
+import { RoomSongSearch } from "@/components/room/RoomSongSearch";
+import { VolumeControl } from "@/components/room/VolumeControl";
 import { Button } from "@/components/ui/Button";
-import { useEndOfTrackBrowserNotification } from "@/hooks/useEndOfTrackBrowserNotification";
-import { useHostPictureInPicture } from "@/hooks/useHostPictureInPicture";
+import { useAuth } from "@/hooks/useAuth";
+import { useLocalVolume } from "@/hooks/useLocalVolume";
 import { usePlaybackMode } from "@/hooks/usePlaybackMode";
+import { useRoomPresence } from "@/hooks/useRoomPresence";
 import { useSupabaseConfigured } from "@/hooks/useSupabaseConfig";
 import { getOrCreateJamContributorLabel } from "@/lib/jamContributorIdentity";
 import { isJamRoomHost } from "@/lib/jamHost";
+import { DEFAULT_COVER_URL } from "@/lib/songConstants";
 import { getSupabaseBrowserClient } from "@/lib/supabase";
-import type { CurrentPlay, QueueItem, YoutubeSearchHit } from "@/lib/types";
+import type {
+  CurrentPlay,
+  CurrentTrackState,
+  QueueItem,
+  SongSearchHit,
+} from "@/lib/types";
 import { useJamStore } from "@/store/jamStore";
 
 type RoomClientProps = {
@@ -40,6 +49,37 @@ function normalizeQueueRows(rows: unknown[]): QueueItem[] {
         : index + 1;
     return { ...(r as unknown as QueueItem), position: pos };
   });
+}
+
+async function fetchStreamForSong(songId: string): Promise<{
+  url: string;
+  coverUrl: string | null;
+}> {
+  const res = await fetch(`/api/songs/${songId}/stream`);
+  const body = (await res.json().catch(() => ({}))) as {
+    url?: string;
+    coverUrl?: string | null;
+    error?: string;
+  };
+  if (!res.ok || !body.url) {
+    throw new Error(body.error ?? "Gagal memuat audio.");
+  }
+  return { url: body.url, coverUrl: body.coverUrl ?? null };
+}
+
+async function buildCurrentTrack(
+  songId: string,
+  queue: QueueItem[],
+): Promise<CurrentTrackState> {
+  const queueItem = queue.find((q) => q.song_id === songId);
+  const stream = await fetchStreamForSong(songId);
+  return {
+    songId,
+    audioUrl: stream.url,
+    title: queueItem?.title ?? "Unknown track",
+    artist: null,
+    coverUrl: stream.coverUrl ?? queueItem?.thumbnail ?? DEFAULT_COVER_URL,
+  };
 }
 
 async function fetchQueueForRoom(roomId: string): Promise<QueueItem[]> {
@@ -72,16 +112,12 @@ async function fetchCurrentPlay(
   return normalizeCurrentPlay((data as CurrentPlay) ?? null);
 }
 
-/**
- * If nothing is marked as playing but the queue has items, promote the first
- * track to `current_play` so every client converges on the same video.
- */
 async function ensureCurrentFromQueue(
   roomId: string,
   queue: QueueItem[],
   current: CurrentPlay | null,
 ): Promise<CurrentPlay | null> {
-  if (current?.video_id) return current;
+  if (current?.song_id) return current;
   if (!queue.length) return null;
 
   const supabase = getSupabaseBrowserClient();
@@ -89,7 +125,7 @@ async function ensureCurrentFromQueue(
   const { error } = await supabase.from("current_play").upsert(
     {
       room_id: roomId,
-      video_id: first.video_id,
+      song_id: first.song_id,
       started_at: new Date().toISOString(),
       is_playing: true,
     },
@@ -102,7 +138,7 @@ async function ensureCurrentFromQueue(
 
 export default function RoomClient({ roomId }: RoomClientProps) {
   const configured = useSupabaseConfigured();
-  const { queue, currentVideo, setRoomId, setQueue, setCurrentVideo } =
+  const { queue, currentTrack, setRoomId, setQueue, setCurrentTrack } =
     useJamStore();
   const [roomName, setRoomName] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -113,6 +149,21 @@ export default function RoomClient({ roomId }: RoomClientProps) {
     typeof window !== "undefined" ? isJamRoomHost(roomId) : false,
   );
   const [selfContributor, setSelfContributor] = useState<string | null>(null);
+  const [currentPlayRow, setCurrentPlayRow] = useState<CurrentPlay | null>(
+    null,
+  );
+  const playerRef = useRef<AudioPlayerLike | null>(null);
+  const [audioPlayer, setAudioPlayer] = useState<AudioPlayerLike | null>(null);
+  const advancingRef = useRef(false);
+  const [audioError, setAudioError] = useState<string | null>(null);
+
+  const { user } = useAuth();
+  const { volume, setVolume } = useLocalVolume();
+  const { mode: playbackMode, setMode: setPlaybackMode } = usePlaybackMode(
+    roomId,
+    isHost,
+  );
+  const isMutedGuest = !isHost && playbackMode === "follow_host";
 
   useEffect(() => {
     setIsHost(isJamRoomHost(roomId));
@@ -121,25 +172,13 @@ export default function RoomClient({ roomId }: RoomClientProps) {
   useEffect(() => {
     setSelfContributor(getOrCreateJamContributorLabel());
   }, []);
-  const [currentPlayRow, setCurrentPlayRow] = useState<CurrentPlay | null>(
-    null,
-  );
-  const playerRef = useRef<YtPlayerLike | null>(null);
-  const playerContainerRef = useRef<HTMLDivElement | null>(null);
-  const [ytPlayer, setYtPlayer] = useState<YtPlayerLike | null>(null);
-  const advancingRef = useRef(false);
-
-  const { mode: playbackMode, setMode: setPlaybackMode } = usePlaybackMode(
-    roomId,
-    isHost,
-  );
 
   useEffect(() => {
-    if (!currentVideo?.videoId) {
+    if (!currentTrack?.songId) {
       playerRef.current = null;
-      setYtPlayer(null);
+      setAudioPlayer(null);
     }
-  }, [currentVideo?.videoId]);
+  }, [currentTrack?.songId]);
 
   const flashCopyFeedback = useCallback((kind: "link" | "id") => {
     if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
@@ -175,39 +214,71 @@ export default function RoomClient({ roomId }: RoomClientProps) {
     };
   }, []);
 
-  const refreshPlaybackState = useCallback(async () => {
-    const [qRows, current] = await Promise.all([
-      fetchQueueForRoom(roomId),
-      fetchCurrentPlay(roomId),
-    ]);
+  const refreshQueueOnly = useCallback(async () => {
+    const qRows = await fetchQueueForRoom(roomId);
     setQueue(qRows);
 
-    let effectiveCurrent = current;
-    if (!effectiveCurrent?.video_id && qRows.length > 0) {
-      effectiveCurrent = await ensureCurrentFromQueue(
-        roomId,
-        qRows,
-        effectiveCurrent,
-      );
+    const current = await fetchCurrentPlay(roomId);
+    if (!current?.song_id && qRows.length > 0) {
+      await ensureCurrentFromQueue(roomId, qRows, current);
     }
 
-    setCurrentPlayRow(normalizeCurrentPlay(effectiveCurrent));
+    return qRows;
+  }, [roomId, setQueue]);
 
-    if (effectiveCurrent?.video_id) {
-      setCurrentVideo({ videoId: effectiveCurrent.video_id });
-    } else {
-      setCurrentVideo(null);
-    }
-  }, [roomId, setCurrentVideo, setQueue]);
+  const refreshCurrentPlayState = useCallback(
+    async (qRows?: QueueItem[]) => {
+      const queueRows = qRows ?? (await fetchQueueForRoom(roomId));
+
+      let effectiveCurrent = await fetchCurrentPlay(roomId);
+      if (!effectiveCurrent?.song_id && queueRows.length > 0) {
+        effectiveCurrent = await ensureCurrentFromQueue(
+          roomId,
+          queueRows,
+          effectiveCurrent,
+        );
+      }
+
+      setCurrentPlayRow(normalizeCurrentPlay(effectiveCurrent));
+
+      const nextSongId = effectiveCurrent?.song_id ?? null;
+      if (!nextSongId) {
+        setCurrentTrack(null);
+        return;
+      }
+
+      const existing = useJamStore.getState().currentTrack;
+      if (existing?.songId === nextSongId && existing.audioUrl) {
+        return;
+      }
+
+      try {
+        setAudioError(null);
+        const track = await buildCurrentTrack(nextSongId, queueRows);
+        setCurrentTrack(track);
+      } catch (e) {
+        setAudioError(
+          e instanceof Error ? e.message : "Gagal memuat lagu.",
+        );
+        setCurrentTrack(null);
+      }
+    },
+    [roomId, setCurrentTrack],
+  );
+
+  const refreshPlaybackState = useCallback(async () => {
+    const qRows = await refreshQueueOnly();
+    await refreshCurrentPlayState(qRows);
+  }, [refreshQueueOnly, refreshCurrentPlayState]);
 
   useEffect(() => {
     setRoomId(roomId);
     return () => {
       setRoomId(null);
       setQueue([]);
-      setCurrentVideo(null);
+      setCurrentTrack(null);
     };
-  }, [roomId, setCurrentVideo, setQueue, setRoomId]);
+  }, [roomId, setCurrentTrack, setQueue, setRoomId]);
 
   useEffect(() => {
     if (!configured) {
@@ -246,42 +317,15 @@ export default function RoomClient({ roomId }: RoomClientProps) {
     };
   }, [configured, roomId, refreshPlaybackState]);
 
-  useEffect(() => {
-    if (!configured) return;
-
-    const supabase = getSupabaseBrowserClient();
-    const channel = supabase
-      .channel(`jam-room-${roomId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "queue",
-          filter: `room_id=eq.${roomId}`,
-        },
-        () => {
-          void refreshPlaybackState();
-        },
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "current_play",
-          filter: `room_id=eq.${roomId}`,
-        },
-        () => {
-          void refreshPlaybackState();
-        },
-      )
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [configured, roomId, refreshPlaybackState]);
+  const { members, status: presenceStatus, presenceKey } = useRoomPresence({
+    roomId,
+    user,
+    anonymousLabel: selfContributor ?? "",
+    isHost,
+    enabled: configured && !loadError,
+    onQueueChange: refreshQueueOnly,
+    onCurrentPlayChange: refreshCurrentPlayState,
+  });
 
   const advanceToNextTrack = useCallback(async () => {
     if (advancingRef.current) return;
@@ -310,11 +354,11 @@ export default function RoomClient({ roomId }: RoomClientProps) {
         .limit(1)
         .maybeSingle();
 
-      if (next?.video_id) {
+      if (next?.song_id) {
         await supabase.from("current_play").upsert(
           {
             room_id: roomId,
-            video_id: next.video_id,
+            song_id: next.song_id,
             started_at: new Date().toISOString(),
             is_playing: true,
           },
@@ -322,18 +366,17 @@ export default function RoomClient({ roomId }: RoomClientProps) {
         );
       } else {
         await supabase.from("current_play").delete().eq("room_id", roomId);
-        setCurrentVideo(null);
+        setCurrentTrack(null);
       }
       await refreshPlaybackState();
     } finally {
       advancingRef.current = false;
     }
-  }, [roomId, refreshPlaybackState, setCurrentVideo]);
+  }, [roomId, refreshPlaybackState, setCurrentTrack]);
 
-  /** End-of-track fallback: runs even when tab visible so host stays in sync if guest advances. */
   useEffect(() => {
-    const vid = currentVideo?.videoId;
-    if (!vid) return;
+    const sid = currentTrack?.songId;
+    if (!sid) return;
 
     const tick = () => {
       const p = playerRef.current;
@@ -351,34 +394,20 @@ export default function RoomClient({ roomId }: RoomClientProps) {
 
     const id = window.setInterval(tick, 2000);
     return () => window.clearInterval(id);
-  }, [currentVideo?.videoId, advanceToNextTrack]);
+  }, [currentTrack?.songId, advanceToNextTrack]);
 
   const roomIsPlaying = currentPlayRow?.is_playing !== false;
 
   const nowQueueItem = queue.find(
-    (q) => q.video_id === currentVideo?.videoId,
+    (q) => q.song_id === currentTrack?.songId,
   );
-  const nowTitle = nowQueueItem?.title ?? null;
-  const nowThumbnail = nowQueueItem?.thumbnail ?? null;
-
-  const endNotif = useEndOfTrackBrowserNotification(playerRef, {
-    videoId: currentVideo?.videoId ?? null,
-    trackTitle: nowTitle,
-    roomIsPlaying,
-    isHost,
-  });
-
-  const hostPip = useHostPictureInPicture({
-    isHost,
-    containerRef: playerContainerRef,
-    trackTitle: nowTitle,
-    trackThumbnail: nowThumbnail,
-    isPlaying: roomIsPlaying,
-    hasVideo: Boolean(currentVideo?.videoId),
-  });
+  const nowTitle = nowQueueItem?.title ?? currentTrack?.title ?? null;
 
   const setRoomPlaying = useCallback(
     async (playing: boolean) => {
+      setCurrentPlayRow((prev) =>
+        prev ? { ...prev, is_playing: playing } : prev,
+      );
       const supabase = getSupabaseBrowserClient();
       const { error } = await supabase
         .from("current_play")
@@ -386,25 +415,25 @@ export default function RoomClient({ roomId }: RoomClientProps) {
         .eq("room_id", roomId);
       if (error) {
         console.error("[setRoomPlaying]", error);
+        await refreshCurrentPlayState();
         return;
       }
-      await refreshPlaybackState();
     },
-    [roomId, refreshPlaybackState],
+    [roomId, refreshCurrentPlayState],
   );
 
   useEffect(() => {
-    if (!ytPlayer) return;
+    if (!audioPlayer) return;
     try {
-      if (roomIsPlaying) ytPlayer.playVideo();
-      else ytPlayer.pauseVideo();
+      if (roomIsPlaying) void audioPlayer.play();
+      else audioPlayer.pause();
     } catch {
       /* ignore */
     }
-  }, [ytPlayer, roomIsPlaying, currentPlayRow?.video_id]);
+  }, [audioPlayer, roomIsPlaying, currentPlayRow?.song_id]);
 
   const handleAddToQueue = useCallback(
-    async (hit: YoutubeSearchHit) => {
+    async (hit: SongSearchHit) => {
       const supabase = getSupabaseBrowserClient();
       const { data: maxRow } = await supabase
         .from("queue")
@@ -422,16 +451,15 @@ export default function RoomClient({ roomId }: RoomClientProps) {
       const addedBy = getOrCreateJamContributorLabel();
       const { error } = await supabase.from("queue").insert({
         room_id: roomId,
-        video_id: hit.videoId,
+        song_id: hit.songId,
         title: hit.title,
         thumbnail: hit.thumbnail,
         position: nextPos,
         added_by_label: addedBy || null,
       });
       if (error) throw error;
-      await refreshPlaybackState();
     },
-    [roomId, refreshPlaybackState],
+    [roomId],
   );
 
   const handleReorder = useCallback(
@@ -446,9 +474,8 @@ export default function RoomClient({ roomId }: RoomClientProps) {
             .eq("room_id", roomId),
         ),
       );
-      await refreshPlaybackState();
     },
-    [roomId, refreshPlaybackState],
+    [roomId],
   );
 
   const initialSeek = wallElapsedSeconds(currentPlayRow?.started_at);
@@ -456,6 +483,11 @@ export default function RoomClient({ roomId }: RoomClientProps) {
   const toggleRoomPlayPause = useCallback(() => {
     void setRoomPlaying(!roomIsPlaying);
   }, [roomIsPlaying, setRoomPlaying]);
+
+  const handleAudioError = useCallback(() => {
+    setAudioError("Gagal memuat lagu. Mencoba lagu berikutnya…");
+    void advanceToNextTrack();
+  }, [advanceToNextTrack]);
 
   if (!configured) {
     return (
@@ -501,8 +533,7 @@ export default function RoomClient({ roomId }: RoomClientProps) {
     );
   }
 
-  const vid = currentVideo?.videoId ?? null;
-  const playbackKey = `${vid ?? ""}-${playbackMode}`;
+  const songId = currentTrack?.songId ?? null;
 
   return (
     <PageShell
@@ -551,7 +582,7 @@ export default function RoomClient({ roomId }: RoomClientProps) {
       </div>
 
       <div className="relative z-30 mb-5 flex justify-center sm:mb-6">
-        <RoomYouTubeSearch onPick={handleAddToQueue} disabled={bootLoading} />
+        <RoomSongSearch onPick={handleAddToQueue} disabled={bootLoading} />
       </div>
 
       <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(280px,380px)] lg:items-start lg:gap-8 xl:grid-cols-[minmax(0,1fr)_minmax(300px,400px)]">
@@ -573,7 +604,7 @@ export default function RoomClient({ roomId }: RoomClientProps) {
                 >
                   <span className="font-medium">Putar di perangkat saya</span>
                   <span className="mt-0.5 block text-xs opacity-90">
-                    Audio + video di speaker Anda; sinkron dengan room.
+                    Audio di speaker Anda; sinkron dengan room.
                   </span>
                 </button>
                 <button
@@ -587,41 +618,53 @@ export default function RoomClient({ roomId }: RoomClientProps) {
                 >
                   <span className="font-medium">Tanpa pemutar di sini</span>
                   <span className="mt-0.5 block text-xs opacity-90">
-                    Video jalan (bisu); dengar dari speaker host di dekat Anda.
+                    Audio jalan (bisu); dengar dari speaker host di dekat Anda.
                   </span>
                 </button>
               </div>
             </div>
           )}
 
-          <YouTubePlayer
-            videoId={vid}
-            playbackKey={playbackKey}
-            containerRef={playerContainerRef}
-            muted={playbackMode === "follow_host"}
+          {audioError && (
+            <p className="text-center text-sm text-amber-200" role="alert">
+              {audioError}
+            </p>
+          )}
+
+          <AudioPlayer
+            songId={songId}
+            audioUrl={currentTrack?.audioUrl ?? null}
+            title={currentTrack?.title ?? null}
+            artist={currentTrack?.artist ?? null}
+            coverUrl={currentTrack?.coverUrl ?? null}
+            muted={isMutedGuest}
+            volume={volume}
             roomIsPlaying={roomIsPlaying}
             initialSeekSeconds={initialSeek}
             onEnd={() => void advanceToNextTrack()}
+            onError={handleAudioError}
             onPlayerReady={(p) => {
               playerRef.current = p;
-              setYtPlayer(p);
+              setAudioPlayer(p);
             }}
             onPlayerChange={(p) => {
               playerRef.current = p;
-              setYtPlayer(p);
+              setAudioPlayer(p);
             }}
           />
 
           <PlaybackTransport
-            hasVideo={Boolean(vid)}
+            hasTrack={Boolean(songId)}
             roomIsPlaying={roomIsPlaying}
             onPlayPause={toggleRoomPlayPause}
             onNext={() => void advanceToNextTrack()}
             nextDisabled={bootLoading}
-            showPipButton={isHost}
-            pipSupported={hostPip.supported}
-            isInPiP={hostPip.isInPiP}
-            onEnterPip={hostPip.enterPiP}
+          />
+
+          <VolumeControl
+            volume={volume}
+            onChange={setVolume}
+            disabled={isMutedGuest}
           />
 
           {nowTitle && (
@@ -631,120 +674,15 @@ export default function RoomClient({ roomId }: RoomClientProps) {
             </p>
           )}
 
-          {isHost && (
-            <div className="rounded-xl border border-white/10 bg-jam-surface/40 px-3 py-2.5 text-xs text-jam-muted sm:px-4 sm:text-sm">
-              <p className="font-medium text-white">
-                PiP otomatis saat pindah tab (host)
-              </p>
-              <p className="mt-1 text-[11px] leading-relaxed sm:text-xs">
-                Saat Anda pindah tab, mini player muncul agar lagu tetap jalan.
-                Didukung di Chrome/Edge desktop; gunakan tombol PiP di bawah
-                video jika auto tidak jalan. Chrome mungkin meminta izin
-                &quot;automatic picture-in-picture&quot; saat pertama kali.
-              </p>
-              {!hostPip.supported ? (
-                <p className="mt-2 text-[11px] text-jam-muted/90 sm:text-xs">
-                  Peramban ini tidak mendukung Document Picture-in-Picture.
-                </p>
-              ) : (
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  {!hostPip.userEnabled ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="px-3 py-1.5 text-xs"
-                      onClick={() => hostPip.setUserEnabled(true)}
-                    >
-                      Aktifkan PiP otomatis
-                    </Button>
-                  ) : (
-                    <>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        className="px-3 py-1.5 text-xs"
-                        onClick={() => hostPip.setUserEnabled(false)}
-                      >
-                        Nonaktifkan PiP otomatis
-                      </Button>
-                      {hostPip.isInPiP && (
-                        <span className="text-xs text-jam-accent" role="status">
-                          PiP aktif
-                        </span>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {isHost && (
-            <div className="rounded-xl border border-white/10 bg-jam-surface/40 px-3 py-2.5 text-xs text-jam-muted sm:px-4 sm:text-sm">
-              <p className="font-medium text-white">
-                Peringatan hampir habis (host)
-              </p>
-              <p className="mt-1 text-[11px] leading-relaxed sm:text-xs">
-                Tab tidak aktif kadang menahan lagu berikutnya. Aktifkan
-                notifikasi untuk diingatkan sekitar 7 detik sebelum selesai;
-                ketuk notifikasi untuk kembali ke tab ini.
-              </p>
-              {!endNotif.notifSupported ? (
-                <p className="mt-2 text-[11px] text-jam-muted/90 sm:text-xs">
-                  Peramban ini tidak mendukung notifikasi desktop.
-                </p>
-              ) : endNotif.permission === "denied" ? (
-                <p className="mt-2 text-[11px] text-amber-200/90 sm:text-xs">
-                  Notifikasi diblokir. Ubah izin situs di pengaturan browser jika
-                  ingin memakai fitur ini.
-                </p>
-              ) : (
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  {endNotif.permission === "default" && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="px-3 py-1.5 text-xs"
-                      onClick={() => void endNotif.requestAndEnable()}
-                    >
-                      Izinkan & aktifkan peringatan
-                    </Button>
-                  )}
-                  {endNotif.permission === "granted" &&
-                    endNotif.userEnabled && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        className="px-3 py-1.5 text-xs"
-                        onClick={() => endNotif.setUserEnabled(false)}
-                      >
-                        Nonaktifkan peringatan
-                      </Button>
-                    )}
-                  {endNotif.permission === "granted" &&
-                    !endNotif.userEnabled && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        className="px-3 py-1.5 text-xs"
-                        onClick={() => endNotif.setUserEnabled(true)}
-                      >
-                        Aktifkan peringatan
-                      </Button>
-                    )}
-                  {endNotif.permission === "granted" &&
-                    endNotif.userEnabled && (
-                      <span className="text-xs text-jam-accent" role="status">
-                        Peringatan aktif
-                      </span>
-                    )}
-                </div>
-              )}
-            </div>
-          )}
         </div>
 
         <aside className="flex min-w-0 flex-col gap-4">
+          <RoomMemberList
+            members={members}
+            status={presenceStatus}
+            selfPresenceKey={presenceKey}
+          />
+
           {selfContributor ? (
             <p className="rounded-lg border border-white/10 bg-black/25 px-3 py-2 text-xs text-jam-muted">
               Identitas antrean Anda:{" "}
@@ -765,7 +703,7 @@ export default function RoomClient({ roomId }: RoomClientProps) {
             </div>
             <QueueList
               items={queue}
-              currentVideoId={currentVideo?.videoId ?? null}
+              currentSongId={currentTrack?.songId ?? null}
               loading={bootLoading && queue.length === 0}
               onReorder={handleReorder}
               reorderDisabled={bootLoading}
