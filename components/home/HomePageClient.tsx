@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { AuthButton } from "@/components/auth/AuthButton";
 import { PageShell } from "@/components/layout/PageShell";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -24,7 +25,6 @@ export function HomePageClient() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [joinError, setJoinError] = useState<string | null>(null);
 
-  /** Prefill join field from `/?room=<uuid>` (share link to home). */
   useEffect(() => {
     const raw = searchParams.get("room");
     if (!raw) return;
@@ -104,7 +104,7 @@ export function HomePageClient() {
     return (
       <PageShell
         title="Jam Room App"
-        subtitle="Dengarkan musik bersama dengan antrean YouTube yang sama."
+        subtitle="Dengarkan musik bersama dengan antrean yang sama."
       >
         <div className="mx-auto max-w-lg rounded-2xl border border-amber-500/30 bg-amber-500/10 p-6 text-center text-sm text-amber-100">
           <p className="font-medium">
@@ -132,14 +132,18 @@ export function HomePageClient() {
   return (
     <PageShell
       title="Jam Room App"
-      subtitle="Buat room, bagikan tautan atau ID, dan antrekan lagu YouTube bersama."
+      subtitle="Buat room, bagikan tautan atau ID, dan antrekan lagu dari library bersama."
     >
+      <div className="mb-6 flex justify-end">
+        <AuthButton />
+      </div>
+
       <div className="mx-auto flex w-full max-w-md flex-col gap-8">
         <section className="rounded-2xl border border-white/10 bg-jam-surface/80 p-6 shadow-xl shadow-black/30">
           <h2 className="text-lg font-semibold text-white">Buat room</h2>
           <p className="mt-1 text-sm text-jam-muted">
             Pilih nama tampilan. Anda akan mendapat tautan undangan dan ID untuk
-            dibagikan.
+            dibagikan. Tidak perlu login.
           </p>
           <div className="mt-4 space-y-4">
             <Input
@@ -169,13 +173,7 @@ export function HomePageClient() {
         <section className="rounded-2xl border border-white/10 bg-jam-surface/80 p-6 shadow-xl shadow-black/30">
           <h2 className="text-lg font-semibold text-white">Gabung room</h2>
           <p className="mt-1 text-sm text-jam-muted">
-            <strong className="text-jam-text">Dua cara:</strong> buka tautan
-            undangan dari host (langsung ke halaman room), atau tempel ID room
-            di bawah. Tautan ke beranda dengan ID terisi:{" "}
-            <code className="rounded bg-black/20 px-1 text-xs text-jam-accent">
-              /?room=&lt;UUID&gt;
-            </code>
-            .
+            Buka tautan undangan dari host, atau tempel ID room di bawah.
           </p>
           <div className="mt-4 space-y-4">
             <Input
@@ -204,17 +202,11 @@ export function HomePageClient() {
         </section>
 
         <p className="text-center text-xs text-jam-muted">
-          Pencarian YouTube memakai kunci server — atur{" "}
-          <code className="rounded bg-black/30 px-1">YOUTUBE_API_KEY</code> untuk
-          menambah lagu.{" "}
-          <Link
-            className="text-jam-accent underline-offset-2 hover:underline"
-            href="https://developers.google.com/youtube/v3/getting-started"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Dokumentasi API
-          </Link>
+          Ingin menambah lagu?{" "}
+          <Link href="/library" className="text-jam-accent hover:underline">
+            Masuk dengan Google
+          </Link>{" "}
+          dan upload MP3 ke library publik.
         </p>
       </div>
     </PageShell>
