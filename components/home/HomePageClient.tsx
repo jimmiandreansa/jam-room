@@ -108,7 +108,7 @@ export function HomePageClient() {
       >
         <div className="mx-auto max-w-lg rounded-2xl border border-amber-500/30 bg-amber-500/10 p-6 text-center text-sm text-amber-100">
           <p className="font-medium">
-            Variabel lingkungan Supabase belum diatur.
+            Supabase environment variables are not set.
           </p>
           <p className="mt-2 text-amber-100/80">
             Tambahkan{" "}
@@ -119,9 +119,8 @@ export function HomePageClient() {
             <code className="rounded bg-black/30 px-1">
               NEXT_PUBLIC_SUPABASE_ANON_KEY
             </code>{" "}
-            ke file{" "}
-            <code className="rounded bg-black/30 px-1">.env.local</code>, lalu
-            jalankan ulang{" "}
+            ke file <code className="rounded bg-black/30 px-1">.env.local</code>
+            , lalu jalankan ulang{" "}
             <code className="rounded bg-black/30 px-1">npm run dev</code>.
           </p>
         </div>
