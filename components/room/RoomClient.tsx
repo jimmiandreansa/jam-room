@@ -3,9 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PageShell } from "@/components/layout/PageShell";
-import {
-  AudioPlayer,
-} from "@/components/room/AudioPlayer";
+import { AudioPlayer } from "@/components/room/AudioPlayer";
 import type { AudioPlayerLike } from "@/lib/audioPlayer";
 import { PlaybackTransport } from "@/components/room/PlaybackTransport";
 import { QueueList } from "@/components/room/QueueList";
@@ -99,9 +97,7 @@ function normalizeCurrentPlay(row: CurrentPlay | null): CurrentPlay | null {
   return { ...row, is_playing: row.is_playing !== false };
 }
 
-async function fetchCurrentPlay(
-  roomId: string,
-): Promise<CurrentPlay | null> {
+async function fetchCurrentPlay(roomId: string): Promise<CurrentPlay | null> {
   const supabase = getSupabaseBrowserClient();
   const { data, error } = await supabase
     .from("current_play")
@@ -257,9 +253,7 @@ export default function RoomClient({ roomId }: RoomClientProps) {
         const track = await buildCurrentTrack(nextSongId, queueRows);
         setCurrentTrack(track);
       } catch (e) {
-        setAudioError(
-          e instanceof Error ? e.message : "Gagal memuat lagu.",
-        );
+        setAudioError(e instanceof Error ? e.message : "Gagal memuat lagu.");
         setCurrentTrack(null);
       }
     },
@@ -305,8 +299,7 @@ export default function RoomClient({ roomId }: RoomClientProps) {
         if (!cancelled) setRoomName(room.name as string);
         await refreshPlaybackState();
       } catch (e) {
-        const message =
-          e instanceof Error ? e.message : "Gagal memuat room.";
+        const message = e instanceof Error ? e.message : "Gagal memuat room.";
         if (!cancelled) setLoadError(message);
       } finally {
         if (!cancelled) setBootLoading(false);
@@ -317,7 +310,11 @@ export default function RoomClient({ roomId }: RoomClientProps) {
     };
   }, [configured, roomId, refreshPlaybackState]);
 
-  const { members, status: presenceStatus, presenceKey } = useRoomPresence({
+  const {
+    members,
+    status: presenceStatus,
+    presenceKey,
+  } = useRoomPresence({
     roomId,
     user,
     anonymousLabel: selfContributor ?? "",
@@ -398,9 +395,7 @@ export default function RoomClient({ roomId }: RoomClientProps) {
 
   const roomIsPlaying = currentPlayRow?.is_playing !== false;
 
-  const nowQueueItem = queue.find(
-    (q) => q.song_id === currentTrack?.songId,
-  );
+  const nowQueueItem = queue.find((q) => q.song_id === currentTrack?.songId);
   const nowTitle = nowQueueItem?.title ?? currentTrack?.title ?? null;
 
   const setRoomPlaying = useCallback(
@@ -494,7 +489,7 @@ export default function RoomClient({ roomId }: RoomClientProps) {
       <PageShell title="Jam Room" subtitle="Konfigurasi diperlukan">
         <div className="mx-auto max-w-lg rounded-2xl border border-amber-500/30 bg-amber-500/10 p-6 text-center text-sm text-amber-100">
           <p className="font-medium">
-            Variabel lingkungan Supabase belum diatur.
+            Supabase environment variables are not set.
           </p>
           <p className="mt-2 text-amber-100/80">
             Tambahkan{" "}
@@ -505,8 +500,8 @@ export default function RoomClient({ roomId }: RoomClientProps) {
             <code className="rounded bg-black/30 px-1">
               NEXT_PUBLIC_SUPABASE_ANON_KEY
             </code>{" "}
-            ke <code className="rounded bg-black/30 px-1">.env.local</code>, lalu
-            jalankan ulang server pengembangan.
+            ke <code className="rounded bg-black/30 px-1">.env.local</code>,
+            lalu jalankan ulang server pengembangan.
           </p>
           <div className="mt-4">
             <Link href="/">
@@ -673,7 +668,6 @@ export default function RoomClient({ roomId }: RoomClientProps) {
               <span className="font-medium text-white">{nowTitle}</span>
             </p>
           )}
-
         </div>
 
         <aside className="flex min-w-0 flex-col gap-4">
