@@ -1,6 +1,7 @@
 -- Jam Room App — run this in the Supabase SQL editor (or via migration).
 -- Enables UUID generation, tables, realtime, and permissive RLS for jam MVP (anon access).
--- Includes songs catalog (R2 audio) + Google Auth upload policies.
+-- Room playback uses YouTube (video_id). Songs catalog (R2 audio) + Google Auth
+-- power the standalone "My Library" upload feature.
 
 -- ---------------------------------------------------------------------------
 -- Extensions
@@ -48,7 +49,7 @@ create index if not exists songs_artist_trgm_idx on public.songs using gin (arti
 create table if not exists public.queue (
   id uuid primary key default gen_random_uuid(),
   room_id uuid not null references public.rooms (id) on delete cascade,
-  song_id uuid not null references public.songs (id) on delete cascade,
+  video_id text not null,
   title text not null,
   thumbnail text not null,
   added_by_label text,
@@ -65,7 +66,7 @@ create index if not exists queue_room_id_created_at_idx
 create table if not exists public.current_play (
   id uuid primary key default gen_random_uuid(),
   room_id uuid not null references public.rooms (id) on delete cascade,
-  song_id uuid references public.songs (id) on delete set null,
+  video_id text not null,
   started_at timestamptz not null default now(),
   is_playing boolean not null default true,
   constraint current_play_room_id_key unique (room_id)

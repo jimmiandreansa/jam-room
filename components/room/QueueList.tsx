@@ -22,7 +22,7 @@ import type { QueueItem } from "@/lib/types";
 
 type QueueListProps = {
   items: QueueItem[];
-  currentSongId: string | null;
+  currentVideoId: string | null;
   loading?: boolean;
   onReorder?: (orderedIds: string[]) => void | Promise<void>;
   reorderDisabled?: boolean;
@@ -167,7 +167,7 @@ function SortableRow({
 
 export function QueueList({
   items,
-  currentSongId,
+  currentVideoId,
   loading,
   onReorder,
   reorderDisabled,
@@ -225,7 +225,7 @@ export function QueueList({
             item={item}
             index={index}
             isNow={Boolean(
-              currentSongId && item.song_id === currentSongId,
+              currentVideoId && item.video_id === currentVideoId,
             )}
           />
         ))}
@@ -249,7 +249,7 @@ export function QueueList({
               item={item}
               index={index}
               isNow={Boolean(
-                currentSongId && item.song_id === currentSongId,
+                currentVideoId && item.video_id === currentVideoId,
               )}
             />
           ))}
