@@ -1,6 +1,6 @@
 # Jam Room App
 
-Collaborative “listen together” rooms built with **Next.js 14**, **TypeScript**, **Tailwind CSS**, **Supabase** (Postgres + Realtime + Auth), **Cloudflare R2** (audio storage), and **Zustand**.
+Collaborative “listen together” rooms built with **Next.js 14**, **TypeScript**, **Tailwind CSS**, **Supabase** (Postgres + Realtime + Auth), **YouTube** (in-room playback), **Cloudflare R2** (My Library audio storage), and **Zustand**.
 
 See [docs/PRD.md](docs/PRD.md) for full product requirements.
 
@@ -8,7 +8,8 @@ See [docs/PRD.md](docs/PRD.md) for full product requirements.
 
 - Node.js 18+
 - A [Supabase](https://supabase.com/) project (Google OAuth enabled)
-- A [Cloudflare R2](https://developers.cloudflare.com/r2/) bucket + API token
+- A [YouTube Data API v3](https://developers.google.com/youtube/v3/getting-started) key (in-room search)
+- A [Cloudflare R2](https://developers.cloudflare.com/r2/) bucket + API token (optional — only for the My Library upload feature)
 
 ## 1. Clone and install
 
@@ -20,7 +21,7 @@ npm install
 
 **New project:** run `supabase/schema.sql` in the Supabase SQL Editor.
 
-**Existing YouTube MVP database:** run `supabase/migration_songs_and_song_id.sql` once (breaking change: replaces `video_id` with `song_id`).
+**Existing R2/song_id database:** run `supabase/migration_revert_to_youtube.sql` once (breaking change: replaces `song_id` with `video_id` on `queue` / `current_play` and clears their rows; `songs` / `profiles` are kept for My Library).
 
 Also run legacy migrations if needed:
 
@@ -53,7 +54,8 @@ Copy `.env.example` to `.env.local`:
 | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | Public | Supabase project URL (no `/rest/v1` suffix) |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public | Supabase anon key |
-| `R2_ACCOUNT_ID` | Server | Cloudflare account ID |
+| `YOUTUBE_API_KEY` | Server | YouTube Data API v3 key (in-room search) |
+| `R2_ACCOUNT_ID` | Server | Cloudflare account ID (My Library only) |
 | `R2_ACCESS_KEY_ID` | Server | R2 API token access key |
 | `R2_SECRET_ACCESS_KEY` | Server | R2 API token secret |
 | `R2_BUCKET_NAME` | Server | Bucket name |
@@ -73,10 +75,10 @@ Open [http://localhost:3000](http://localhost:3000).
 ## How it works
 
 - **Home**: create or join a room without login.
-- **Room**: search the global song library, queue tracks, sync playback via Supabase Realtime.
-- **Library**: authenticated users upload MP3s to R2; metadata stored in Supabase `songs`.
-- **Playback**: HTML5 audio with signed R2 URLs; host/guest modes preserved from the original jam UX.
-- **Queue**: ordered by `position`; references `song_id` instead of YouTube `video_id`.
+- **Room**: search YouTube, queue tracks, sync playback via Supabase Realtime; live member list (presence) and per-device volume.
+- **Playback**: YouTube IFrame player; host/guest modes, host Picture-in-Picture, and end-of-track notifications.
+- **Queue**: ordered by `position`; references YouTube `video_id`.
+- **Library** (standalone): authenticated users upload MP3s to R2 with metadata in Supabase `songs`. Note: library tracks are **not** playable inside rooms (rooms are YouTube-only).
 
 ## Deploy on Vercel
 

@@ -96,40 +96,6 @@ export async function DELETE(request: Request, context: RouteContext) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
-    await supabase.from("queue").delete().eq("song_id", id);
-
-    const { data: playingRows } = await supabase
-      .from("current_play")
-      .select("room_id")
-      .eq("song_id", id);
-
-    if (playingRows?.length) {
-      for (const row of playingRows) {
-        const roomId = row.room_id as string;
-        const { data: first } = await supabase
-          .from("queue")
-          .select("*")
-          .eq("room_id", roomId)
-          .order("position", { ascending: true })
-          .limit(1)
-          .maybeSingle();
-
-        if (first?.song_id) {
-          await supabase.from("current_play").upsert(
-            {
-              room_id: roomId,
-              song_id: first.song_id,
-              started_at: new Date().toISOString(),
-              is_playing: true,
-            },
-            { onConflict: "room_id" },
-          );
-        } else {
-          await supabase.from("current_play").delete().eq("room_id", roomId);
-        }
-      }
-    }
-
     const { error: delErr } = await supabase.from("songs").delete().eq("id", id);
     if (delErr) throw delErr;
 
