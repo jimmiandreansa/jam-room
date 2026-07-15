@@ -13,8 +13,9 @@ create extension if not exists pg_trgm;
 -- Tables
 -- ---------------------------------------------------------------------------
 
+-- Room IDs are short 4-char codes (a-z A-Z 0-9) generated client-side.
 create table if not exists public.rooms (
-  id uuid primary key default gen_random_uuid(),
+  id text primary key check (id ~ '^[A-Za-z0-9]{4}$'),
   name text not null,
   created_at timestamptz not null default now()
 );
@@ -48,7 +49,7 @@ create index if not exists songs_artist_trgm_idx on public.songs using gin (arti
 
 create table if not exists public.queue (
   id uuid primary key default gen_random_uuid(),
-  room_id uuid not null references public.rooms (id) on delete cascade,
+  room_id text not null references public.rooms (id) on delete cascade,
   video_id text not null,
   title text not null,
   thumbnail text not null,
@@ -65,7 +66,7 @@ create index if not exists queue_room_id_created_at_idx
 
 create table if not exists public.current_play (
   id uuid primary key default gen_random_uuid(),
-  room_id uuid not null references public.rooms (id) on delete cascade,
+  room_id text not null references public.rooms (id) on delete cascade,
   video_id text not null,
   started_at timestamptz not null default now(),
   is_playing boolean not null default true,

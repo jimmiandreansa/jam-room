@@ -10,10 +10,10 @@ import { Input } from "@/components/ui/Input";
 import { useSupabaseConfigured } from "@/hooks/useSupabaseConfig";
 import { getErrorMessage } from "@/lib/errorMessage";
 import { markJamRoomHost } from "@/lib/jamHost";
+import { generateRoomCode, ROOM_CODE_RE } from "@/lib/roomCode";
 import { getSupabaseBrowserClient } from "@/lib/supabase";
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MAX_CREATE_ATTEMPTS = 8;
 
 export function HomePageClient() {
   const router = useRouter();
@@ -29,7 +29,7 @@ export function HomePageClient() {
     const raw = searchParams.get("room");
     if (!raw) return;
     const id = raw.trim();
-    if (UUID_RE.test(id)) setRoomId(id);
+    if (ROOM_CODE_RE.test(id)) setRoomId(id);
   }, [searchParams]);
 
   async function createRoom() {
@@ -43,15 +43,25 @@ export function HomePageClient() {
     setBusy("create");
     try {
       const supabase = getSupabaseBrowserClient();
-      const { data, error: insertError } = await supabase
-        .from("rooms")
-        .insert({ name })
-        .select("id")
-        .single();
-      if (insertError) throw insertError;
-      if (!data?.id) throw new Error("Server tidak mengembalikan ID room.");
-      markJamRoomHost(data.id);
-      router.push(`/room/${data.id}`);
+      for (let attempt = 0; attempt < MAX_CREATE_ATTEMPTS; attempt++) {
+        const id = generateRoomCode();
+        const { data, error: insertError } = await supabase
+          .from("rooms")
+          .insert({ id, name })
+          .select("id")
+          .single();
+        if (!insertError && data?.id) {
+          markJamRoomHost(data.id);
+          router.push(`/room/${data.id}`);
+          return;
+        }
+        // 23505 = unique_violation -> code taken, retry with a new one.
+        if ((insertError as { code?: string } | null)?.code === "23505") {
+          continue;
+        }
+        if (insertError) throw insertError;
+      }
+      throw new Error("Gagal membuat kode room unik. Coba lagi.");
     } catch (e) {
       console.error("[createRoom]", e);
       setCreateError(
@@ -69,8 +79,8 @@ export function HomePageClient() {
     setJoinError(null);
     setCreateError(null);
     const id = roomId.trim();
-    if (!UUID_RE.test(id)) {
-      setJoinError("Masukkan UUID room yang valid (salin dari host).");
+    if (!ROOM_CODE_RE.test(id)) {
+      setJoinError("Masukkan kode room 4 karakter (huruf/angka).");
       return;
     }
     setBusy("join");
@@ -141,8 +151,8 @@ export function HomePageClient() {
         <section className="rounded-2xl border border-white/10 bg-jam-surface/80 p-6 shadow-xl shadow-black/30">
           <h2 className="text-lg font-semibold text-white">Buat room</h2>
           <p className="mt-1 text-sm text-jam-muted">
-            Pilih nama tampilan. Anda akan mendapat tautan undangan dan ID untuk
-            dibagikan. Tidak perlu login.
+            Pilih nama tampilan. Anda akan mendapat tautan undangan dan kode room
+            4 karakter untuk dibagikan. Tidak perlu login.
           </p>
           <div className="mt-4 space-y-4">
             <Input
@@ -172,13 +182,15 @@ export function HomePageClient() {
         <section className="rounded-2xl border border-white/10 bg-jam-surface/80 p-6 shadow-xl shadow-black/30">
           <h2 className="text-lg font-semibold text-white">Gabung room</h2>
           <p className="mt-1 text-sm text-jam-muted">
-            Buka tautan undangan dari host, atau tempel ID room di bawah.
+            Buka tautan undangan dari host, atau masukkan kode room 4 karakter di
+            bawah.
           </p>
           <div className="mt-4 space-y-4">
             <Input
-              label="ID room"
+              label="Kode room"
               name="room-id"
-              placeholder="00000000-0000-0000-0000-000000000000"
+              placeholder="mis. a1B9"
+              maxLength={4}
               value={roomId}
               onChange={(e) => setRoomId(e.target.value)}
               disabled={!!busy}
